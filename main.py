@@ -1,7 +1,5 @@
 import os
-import math
 import json
-import time
 import base64
 import subprocess
 import configparser
@@ -11,9 +9,9 @@ import cv2
 import numpy
 from PIL import Image, ImageFilter
 import PySimpleGUI as sg
+import easygui
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, A4, A3, legal
-from enum import Enum
 
 sw, sh = sg.Window.get_screen_size()
 sg.theme("DarkTeal2")
@@ -133,6 +131,7 @@ def draw_cross(can, x, y, c=6, s=1):
 def pdf_gen(p_dict, size):
     rgx = re.compile(r"\W")
     img_dict = p_dict["cards"]
+    has_backside = print_dict["backside_enabled"]
     bleed_edge = float(p_dict["bleed_edge"])
     has_bleed_edge = bleed_edge > 0
     if has_bleed_edge:
@@ -158,16 +157,24 @@ def pdf_gen(p_dict, size):
     rx, ry = round((pw - (w * cols)) / 2), round((ph - (h * rows)) / 2)
     ry = ph - ry - h
     total_cards = sum(img_dict.values())
-    pbreak = cols * rows
+    images_per_page = cols * rows
     i = 0
-    for img in img_dict.keys():
-        img_path = os.path.join(img_dir, img)
-        for _ in range(img_dict[img]):
-            _, j = divmod(i, pbreak)
-            y, x = divmod(j, cols)
-            if j == 0 and i > 0:
-                pages.showPage()
 
+    images = []
+    for img in img_dict.keys():
+        images.extend([img] * img_dict[img])
+    images = [
+        images[i : i + images_per_page] for i in range(0, len(images), images_per_page)
+    ]
+
+    for page_images in images:
+        def get_ith_image_coords(i):
+            _, j = divmod(i, images_per_page)
+            y, x = divmod(j, cols)
+            return x, y
+
+        def draw_image(img, x, y):
+            img_path = os.path.join(img_dir, img)
             pages.drawImage(
                 img_path,
                 x * w + rx,
@@ -175,17 +182,39 @@ def pdf_gen(p_dict, size):
                 w,
                 h,
             )
+        
+        # Draw front-sides
+        for (i, img) in enumerate(page_images):
+            x, y = get_ith_image_coords(i)
+            draw_image(img, x, y)
+
+            # Draw lines per image
             if has_bleed_edge:
                 draw_cross(pages, (x + 0) * w + b + rx, ry - (y + 0) * h + b)
                 draw_cross(pages, (x + 1) * w - b + rx, ry - (y + 0) * h + b)
                 draw_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b)
                 draw_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b)
-            elif j == pbreak - 1 or i == total_cards - 1:
-                # Draw lines
-                for cy in range(rows + 1):
-                    for cx in range(cols + 1):
-                        draw_cross(pages, rx + w * cx, ry - h * cy)
-            i += 1
+
+        # Next page
+        pages.showPage()
+
+        # Draw lines for whole page
+        if not has_bleed_edge:
+            for cy in range(rows + 1):
+                for cx in range(cols + 1):
+                    draw_cross(pages, rx + w * cx, ry - h * cy)
+                
+        # Draw back-sides if requested
+        if has_backside:
+            for (i, img) in enumerate(page_images):
+                backside = (print_dict["backsides"][img] if img in print_dict["backsides"] else print_dict["backside_default"])
+                x, y = get_ith_image_coords(i)
+                draw_image(backside, x, y)
+
+            # Next page
+            pages.showPage()
+
+
     saving_window = popup("Saving...")
     saving_window.refresh()
     pages.save()
@@ -269,7 +298,7 @@ def cropper(folder, img_dict, bleed_edge):
     if i > 0 and not has_bleed_edge:
         return cache_previews(img_cache, output_dir)
     else:
-        return img_dict 
+        return img_dict
 
 
 def to_bytes(file_or_bytes, resize=None):
@@ -304,10 +333,11 @@ def to_bytes(file_or_bytes, resize=None):
             ),
             interpolation=cv2.INTER_AREA
         )
+        cur_height, cur_width = new_height, new_width
     _, buffer = cv2.imencode(".png", img)
     bio = io.BytesIO(buffer)
     del img
-    return bio.getvalue()
+    return bio.getvalue(), (cur_width, cur_height)
 
 
 def cache_previews(file, folder, data={}):
@@ -320,11 +350,17 @@ def cache_previews(file, folder, data={}):
         (h, w, _) = im.shape
         del im
         r = 248 / w
-        data[f] = (
-            str(to_bytes(fn, (round(w * r), round(h * r))))
-            if f not in data
-            else data[f]
-        )
+        image_data, image_size = to_bytes(fn, (round(w * r), round(h * r)))
+        data[f] = {
+            'data': str(image_data),
+            'size': image_size,
+        }
+        preview_data, preview_size = to_bytes(fn, (image_size[0] * 0.45, image_size[1] * 0.45))
+        data[f + '_preview'] = {
+            'data': str(preview_data),
+            'size': preview_size,
+        }
+
     with open(file, "w") as fp:
         json.dump(data, fp, ensure_ascii=False)
     return data
@@ -332,21 +368,25 @@ def cache_previews(file, folder, data={}):
 
 def img_frames_refresh(max_cols):
     frame_list = []
-    for cardname, number in print_dict["cards"].items():
-        if not os.path.exists(os.path.join(crop_dir, cardname)):
-            print(f"{cardname} not found.")
+    for card_name, number in print_dict["cards"].items():
+        if not os.path.exists(os.path.join(crop_dir, card_name)):
+            print(f"{card_name} not found.")
             continue
-        idata = eval(
-            img_dict[cardname]
-            if cardname in img_dict
-            else to_bytes(os.path.join(crop_dir, cardname))
-        )
+
+        img_size = img_dict[card_name]['size']
+        backside_padding = 40
+        padded_size = tuple(s + backside_padding for s in img_size)
+
         img_layout = [
             sg.Push(),
-            sg.Image(
-                data=idata,
-                key=f"CRD:{cardname}",
+            sg.Graph(
+                canvas_size=padded_size,
+                graph_bottom_left=(0, 0),
+                graph_top_right=padded_size,
+                key=f"GPH:{card_name}",
                 enable_events=True,
+                drag_submits=True,
+                motion_events=True,
             ),
             sg.Push(),
         ]
@@ -354,30 +394,30 @@ def img_frames_refresh(max_cols):
             sg.Push(),
             sg.Button(
                 "-",
-                key=f"SUB:{cardname}",
-                target=f"NUM:{cardname}",
+                key=f"SUB:{card_name}",
+                target=f"NUM:{card_name}",
                 size=(5, 1),
                 enable_events=True,
             ),
-            sg.Input(number, key=f"NUM:{cardname}", size=(5, 1)),
+            sg.Input(number, key=f"NUM:{card_name}", size=(5, 1)),
             sg.Button(
                 "+",
-                key=f"ADD:{cardname}",
-                target=f"NUM:{cardname}",
+                key=f"ADD:{card_name}",
+                target=f"NUM:{card_name}",
                 size=(5, 1),
                 enable_events=True,
             ),
             sg.Push(),
         ]
         frame_layout = [[sg.Sizer(v_pixels=5)], img_layout, button_layout]
-        title = cardname if len(cardname) < 35 else cardname[:28]+"..."+cardname[cardname.rfind(".")-1:]
+        title = card_name if len(card_name) < 35 else card_name[:28]+"..."+card_name[card_name.rfind(".")-1:]
         frame_list += [
             sg.Frame(
                 title=f" {title} ",
                 layout=frame_layout,
                 title_location=sg.TITLE_LOCATION_BOTTOM,
                 vertical_alignment="center",
-            )
+            ),
         ]
     new_frames = [
         frame_list[i : i + max_cols] for i in range(0, len(frame_list), max_cols)
@@ -388,6 +428,45 @@ def img_frames_refresh(max_cols):
         layout=new_frames, scrollable=True, vertical_scroll_only=True, expand_y=True
     )
 
+def img_draw_single_graph(window, card_name, has_backside):
+    graph = window['GPH:' + card_name]
+
+    img_data = eval(img_dict[card_name]['data'])
+    img_size = img_dict[card_name]['size']
+
+    backside_padding = 40
+
+    graph.erase()
+    graph.metadata = {}
+    if has_backside:
+        backside = (print_dict["backsides"][card_name] if card_name in print_dict["backsides"] else print_dict["backside_default"])
+        backside = backside + '_preview'
+        backside_data = eval(img_dict[backside]['data'])
+        backside_size = img_dict[backside]['size']
+
+        padded_size = tuple(s + backside_padding for s in img_size)
+        graph.set_size(padded_size)
+        graph.change_coordinates(graph_bottom_left=(0, 0), graph_top_right=padded_size)
+
+        graph.metadata["back_id"] = graph.draw_image(data=backside_data, location=(0, backside_size[1]))
+        graph.metadata["front_id"] = graph.draw_image(data=img_data, location=(backside_padding, backside_padding + img_size[1]))
+    else:
+        padded_size = (img_size[0] + backside_padding, img_size[1])
+        graph.set_size(padded_size)
+        graph.change_coordinates(graph_bottom_left=(0, 0), graph_top_right=padded_size)
+
+        graph.metadata["back_id"] = 0
+        graph.metadata["front_id"] = graph.draw_image(data=img_data, location=(backside_padding / 2, padded_size[1]))
+
+def img_draw_graphs(window):
+    has_backside = print_dict["backside_enabled"]
+
+    for card_name, number in print_dict["cards"].items():
+        if not os.path.exists(os.path.join(crop_dir, card_name)):
+            print(f"{card_name} not found.")
+            continue
+
+        img_draw_single_graph(window, card_name, has_backside)
 
 def window_setup(cols):
     column_layout = [
@@ -427,16 +506,19 @@ def window_setup(cols):
             sg.Button(button_text=" Render PDF ", size=(10, 1), key="RENDER"),
         ],
         [
+            sg.Checkbox("Backside", key="ENABLE_BACKSIDE", default=print_dict["backside_enabled"]),
+            sg.Button(button_text=" Default ", size=(10, 1), key="DEFAULT_BACKSIDE", disabled=not print_dict["backside_enabled"]),
+            sg.Push(),
+        ],
+        [
             sg.Frame(
-                title="Card Images", layout=[[img_frames_refresh(cols)]], expand_y=True
-            )
+                title="Card Images", layout=[[img_frames_refresh(cols)]], expand_y=True, expand_x=True,
+            ),
         ],
     ]
     layout = [
         [
-            sg.Push(),
             sg.Column(layout=column_layout, expand_y=True),
-            sg.Push(),
         ],
     ]
     window = sg.Window(
@@ -448,13 +530,14 @@ def window_setup(cols):
         enable_close_attempted_event=True,
         size=print_dict["size"],
     )
+    img_draw_graphs(window)
 
-    for cardname in print_dict["cards"].keys():
+    for card_name in print_dict["cards"].keys():
         def make_number_callback(key):
             def number_callback(var, index, mode):
                 window.write_event_value(key, window[key].TKStringVar.get())
             return number_callback
-        window[f"NUM:{cardname}"].TKStringVar.trace("w", make_number_callback(f"NUM:{cardname}"))
+        window[f"NUM:{card_name}"].TKStringVar.trace("w", make_number_callback(f"NUM:{card_name}"))
 
     def make_combo_callback(key):
         def combo_callback(var, index, mode):
@@ -495,7 +578,26 @@ def window_setup(cols):
             set_invalid_bleed_edge_tooltip(window["CROP"])
     window['BLEED'].TKStringVar.trace("w", bleed_callback)
 
+    def enable_backside_callback(var, index, mode):
+        default_backside_button = window["DEFAULT_BACKSIDE"]
+        backside_enabled = window['ENABLE_BACKSIDE'].TKIntVar.get() != 0
+        print_dict["backside_enabled"] = backside_enabled
+        if backside_enabled:
+            reset_button(default_backside_button)
+        else:
+            default_backside_button.update(disabled=True)
+        img_draw_graphs(window)
+
+    window['ENABLE_BACKSIDE'].TKIntVar.trace("w", enable_backside_callback)
+
     window.bind("<Configure>", "Event")
+
+    for card_name, _ in print_dict["cards"].items():
+        if not os.path.exists(os.path.join(crop_dir, card_name)):
+            print(f"{card_name} not found.")
+            continue
+        window['GPH:' + card_name].bind("<Leave>", f"-Leave")
+
     return window
 
 crop_list = list_files(crop_dir)
@@ -528,6 +630,10 @@ else:
         # program window settings
         "size": (1480, 920),
         "columns": 5,
+        # backside options
+        "backside_enabled": False,
+        "backside_default": "__back.png",
+        "backsides": {},
         # pdf generation options
         "pagesize": "Letter",
         "page_sizes": ["Letter", "A4", "A3", "Legal"],
@@ -549,6 +655,8 @@ for k in window.key_dict.keys():
         window[k].bind("<Button-1>", "-LEFT")
         window[k].bind("<Button-3>", "-RIGHT")
 loading_window.close()
+hover_backside = False
+
 while True:
     event, values = window.read()
 
@@ -557,6 +665,8 @@ while True:
     
     def get_card_name_from_event(event):
         name = event[4:]
+        name = name.replace("+MOVE", "")
+        name = name.replace("+UP", "")
         if "-RIGHT" in name:
             name = name.replace("-RIGHT", "")
             e = "SUB:"
@@ -566,8 +676,38 @@ while True:
         else:
             e = event[:4]
         return name, e
+    
+    if "GPH:" in event:
+        if "-Leave" in event:
+            key = event[:-6]
+            graph = window[key]
+            graph.bring_figure_to_front(graph.metadata["front_id"])
 
-    if "ADD:" in event or "SUB:" in event or "CRD:" in event:
+        elif "+MOVE" in event:
+            name, e = get_card_name_from_event(event)
+            key = "GPH:" + name
+            pos = values[key]
+
+            graph = window[key]
+            figures = graph.get_figures_at_location(pos)
+            if graph.metadata["back_id"] in figures:
+                hover_backside = True
+                graph.bring_figure_to_front(graph.metadata["back_id"])
+            else:
+                hover_backside = False
+                graph.bring_figure_to_front(graph.metadata["front_id"])
+        
+        elif hover_backside:
+            path = easygui.fileopenbox(default="images/*")
+            path = os.path.relpath(path, os.path.abspath('images'))
+            name, e = get_card_name_from_event(event)
+            print_dict["backsides"][name] = path
+
+            has_backside = print_dict["backside_enabled"]
+            img_draw_single_graph(window, name, has_backside)
+
+
+    if event[:4] in ("ADD:", "SUB:"):
         name, e = get_card_name_from_event(event)
         key = "NUM:" + name
         num = int(values[key])
@@ -640,14 +780,18 @@ while True:
         window.refresh()
 
     if "SELECT" in event:
-        for cardname in print_dict["cards"].keys():
-            print_dict["cards"][cardname] = 1
-            window[f"NUM:{cardname}"].update("1")
+        for card_name in print_dict["cards"].keys():
+            print_dict["cards"][card_name] = 1
+            window[f"NUM:{card_name}"].update("1")
 
     if "UNSELECT" in event:
-        for cardname in print_dict["cards"].keys():
-            print_dict["cards"][cardname] = 0
-            window[f"NUM:{cardname}"].update("0")
+        for card_name in print_dict["cards"].keys():
+            print_dict["cards"][card_name] = 0
+            window[f"NUM:{card_name}"].update("0")
+
+    if event in ["DEFAULT_BACKSIDE"]:
+        path = easygui.fileopenbox(default="images/*")
+        print_dict["backside_default"] = os.path.relpath(path, os.path.abspath('images'))
 
     if event and print_dict["size"] != window.size:
         print_dict["size"] = window.size
