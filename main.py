@@ -706,7 +706,7 @@ else:
         "columns": 5,
         # backside options
         "backside_enabled": False,
-        "backside_default": "__barck.png",
+        "backside_default": "__back.png",
         "backsides": {},
         # pdf generation options
         "pagesize": "Letter",
