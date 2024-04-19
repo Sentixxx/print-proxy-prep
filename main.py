@@ -230,14 +230,14 @@ def pdf_gen(p_dict, size):
                 draw_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b)
                 draw_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b)
 
-        # Next page
-        pages.showPage()
-
         # Draw lines for whole page
         if not has_bleed_edge:
             for cy in range(rows + 1):
                 for cx in range(cols + 1):
-                    draw_cross(pages, rx + w * cx, ry - h * cy)
+                    draw_cross(pages, rx + w * cx, ry - h * (cy - 1))
+
+        # Next page
+        pages.showPage()
 
         # Draw back-sides if requested
         if has_backside:
