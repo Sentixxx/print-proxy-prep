@@ -73,8 +73,16 @@ def mm_to_inch(mm):
     return mm * 0.0393701
 
 
+def mm_to_point(mm):
+    return inch_to_point(mm_to_inch(mm))
+
+
 def inch_to_mm(inch):
     return inch / 0.0393701
+
+
+def inch_to_point(inch):
+    return inch * 72
 
 
 def is_number_string(str):
@@ -89,6 +97,16 @@ def cap_bleed_edge_str(bleed_edge):
             bleed_edge_num = min(bleed_edge_num, max_bleed_edge)
             bleed_edge = "{:.2f}".format(bleed_edge_num)
     return bleed_edge
+
+
+def cap_offset_str(offset):
+    if is_number_string(offset):
+        offset_num = float(offset)
+        max_offset = 10.0
+        if offset_num > max_offset:
+            offset_num = min(offset_num, max_offset)
+            offset = "{:.2f}".format(offset_num)
+    return offset
 
 
 def grey_out(main_window):
@@ -146,6 +164,7 @@ def pdf_gen(p_dict, size):
     rgx = re.compile(r"\W")
     img_dict = p_dict["cards"]
     has_backside = print_dict["backside_enabled"]
+    backside_offset = mm_to_point(float(p_dict["backside_offset"]))
     bleed_edge = float(p_dict["bleed_edge"])
     has_bleed_edge = bleed_edge > 0
     if has_bleed_edge:
@@ -155,8 +174,8 @@ def pdf_gen(p_dict, size):
         b = 0
         img_dir = crop_dir
     (w, h) = card_size_without_bleed_inch
-    w, h = (w + 2 * b) * 72, (h + 2 * b) * 72
-    b = b * 72
+    w, h = inch_to_point((w + 2 * b)), inch_to_point((h + 2 * b))
+    b = inch_to_point(b)
     rotate = bool(p_dict["orient"] == "Landscape")
     size = tuple(size[::-1]) if rotate else size
     pw, ph = size
@@ -172,9 +191,7 @@ def pdf_gen(p_dict, size):
     cols, rows = int(pw // w), int(ph // h)
     rx, ry = round((pw - (w * cols)) / 2), round((ph - (h * rows)) / 2)
     ry = ph - ry - h
-    total_cards = sum(img_dict.values())
     images_per_page = cols * rows
-    i = 0
 
     images = []
     for img in img_dict.keys():
@@ -190,13 +207,13 @@ def pdf_gen(p_dict, size):
             y, x = divmod(j, cols)
             return x, y
 
-        def draw_image(img, x, y):
+        def draw_image(img, x, y, dx=0.0, dy=0.0):
             img_path = os.path.join(img_dir, img)
             if os.path.exists(img_path):
                 pages.drawImage(
                     img_path,
-                    x * w + rx,
-                    ry - y * h,
+                    x * w + rx + dx,
+                    ry - y * h + dy,
                     w,
                     h,
                 )
@@ -231,7 +248,7 @@ def pdf_gen(p_dict, size):
                     else print_dict["backside_default"]
                 )
                 x, y = get_ith_image_coords(i)
-                draw_image(backside, x, y)
+                draw_image(backside, x, y, backside_offset, 0)
 
             # Next page
             pages.showPage()
@@ -573,6 +590,13 @@ def window_setup(cols):
                 key="DEFAULT_BACKSIDE",
                 disabled=not print_dict["backside_enabled"],
             ),
+            sg.Text("Offset (mm):"),
+            sg.Input(
+                print_dict["backside_offset"],
+                size=(6, 1),
+                key="OFFSET_BACKSIDE",
+                enable_events=True,
+            ),
             sg.Push(),
         ],
         [
@@ -663,15 +687,35 @@ def window_setup(cols):
 
     def enable_backside_callback(var, index, mode):
         default_backside_button = window["DEFAULT_BACKSIDE"]
+        offset_backside_button = window["OFFSET_BACKSIDE"]
         backside_enabled = window["ENABLE_BACKSIDE"].TKIntVar.get() != 0
         print_dict["backside_enabled"] = backside_enabled
         if backside_enabled:
             reset_button(default_backside_button)
+            reset_button(offset_backside_button)
         else:
             default_backside_button.update(disabled=True)
+            offset_backside_button.update(disabled=True)
         img_draw_graphs(window)
 
     window["ENABLE_BACKSIDE"].TKIntVar.trace("w", enable_backside_callback)
+
+    def backside_offset_callback(var, index, mode):
+        offset_input = window["OFFSET_BACKSIDE"]
+        offset = offset_input.TKStringVar.get()
+        offset = cap_offset_str(offset)
+        if offset != offset_input.TKStringVar.get():
+            offset_input.update(offset)
+
+        render_button = window["RENDER"]
+        if is_number_string(offset):
+            print_dict["backside_offset"] = offset
+            reset_button(render_button)
+        else:
+            render_button.set_tooltip("Backside offset not a valid number...")
+            render_button.update(disabled=True)
+
+    window["OFFSET_BACKSIDE"].TKStringVar.trace("w", backside_offset_callback)
 
     window.bind("<Configure>", "Event")
 
@@ -718,6 +762,7 @@ else:
         # backside options
         "backside_enabled": False,
         "backside_default": "__back.png",
+        "backside_offset": "0",
         "backsides": {},
         # pdf generation options
         "pagesize": "Letter",
