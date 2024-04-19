@@ -399,6 +399,10 @@ def img_frames_refresh(max_cols):
         if not os.path.exists(os.path.join(crop_dir, card_name)):
             print(f"{card_name} not found.")
             continue
+        
+        if card_name.startswith('__'):
+            # Hiding files starting with double-underscore
+            continue
 
         img_size = img_dict[card_name]["size"]
         backside_padding = 40
@@ -512,6 +516,10 @@ def img_draw_graphs(window):
         if not os.path.exists(os.path.join(crop_dir, card_name)):
             print(f"{card_name} not found.")
             continue
+        
+        if card_name.startswith('__'):
+            # Hiding files starting with double-underscore
+            continue
 
         img_draw_single_graph(window, card_name, has_backside)
 
@@ -593,6 +601,8 @@ def window_setup(cols):
     img_draw_graphs(window)
 
     for card_name in print_dict["cards"].keys():
+        if card_name.startswith('__'):
+            continue
 
         def make_number_callback(key):
             def number_callback(var, index, mode):
@@ -666,8 +676,7 @@ def window_setup(cols):
     window.bind("<Configure>", "Event")
 
     for card_name, _ in print_dict["cards"].items():
-        if not os.path.exists(os.path.join(crop_dir, card_name)):
-            print(f"{card_name} not found.")
+        if card_name.startswith('__') or not os.path.exists(os.path.join(crop_dir, card_name)):
             continue
         window["GPH:" + card_name].bind("<Leave>", f"-Leave")
 
@@ -690,7 +699,7 @@ if os.path.exists(print_json):
     if len(print_dict["cards"].items()) < len(list_files(crop_dir)):
         for img in list_files(crop_dir):
             if img not in print_dict["cards"].keys():
-                print_dict["cards"][img] = 1
+                print_dict["cards"][img] = 0 if img.startswith('__') else 1
     # Make sure we have a sensible bleed edge
     bleed_edge = print_dict["bleed_edge"]
     bleed_edge = cap_bleed_edge_str(bleed_edge)
@@ -716,7 +725,7 @@ else:
         "filename": "_printme",
     }
     for img in list_files(crop_dir):
-        print_dict["cards"][img] = 1
+        print_dict["cards"][img] = 0 if img.startswith('__') else 1
 
 bleed_edge = float(print_dict["bleed_edge"])
 if need_run_cropper(image_dir, bleed_edge):
