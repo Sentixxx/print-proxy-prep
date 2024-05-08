@@ -17,6 +17,7 @@ from enum import Enum
 
 sw, sh = sg.Window.get_screen_size()
 sg.theme("DarkTeal2")
+stroke = True
 
 def popup(middle_text):
     return sg.Window(
@@ -115,18 +116,18 @@ def draw_cross(can, x, y, c=6, s=1):
     dash = [s, s]
     can.setLineWidth(s)
 
-    # First layer
+    #First layer
     can.setDash(dash)
-    can.setStrokeColorRGB(255, 255, 255)
+    can.setStrokeColorRGB(0, 255, 0)
     can.line(x, y - c, x, y + c)
-    can.setStrokeColorRGB(0, 0, 0)
+    can.setStrokeColorRGB(0, 255, 0)
     can.line(x - c, y, x + c, y)
     
-    # Second layer with phase offset
+    #Second layer with phase offset
     can.setDash(dash, s)
-    can.setStrokeColorRGB(0, 0, 0)
+    can.setStrokeColorRGB(0, 255, 0)
     can.line(x, y - c, x, y + c)
-    can.setStrokeColorRGB(255, 255, 255)
+    can.setStrokeColorRGB(0, 255, 0)
     can.line(x - c, y, x + c, y)
 
 
@@ -155,7 +156,7 @@ def pdf_gen(p_dict, size):
     )
     pages = canvas.Canvas(pdf_fp, pagesize=size)
     cols, rows = int(pw // w), int(ph // h)
-    rx, ry = round((pw - (w * cols)) / 2), round((ph - (h * rows)) / 2)
+    rx, ry = (pw - (w * cols)) / 2, round((ph - (h * rows)) / 2)
     ry = ph - ry - h
     total_cards = sum(img_dict.values())
     pbreak = cols * rows
@@ -175,16 +176,18 @@ def pdf_gen(p_dict, size):
                 w,
                 h,
             )
-            if has_bleed_edge:
-                draw_cross(pages, (x + 0) * w + b + rx, ry - (y + 0) * h + b)
-                draw_cross(pages, (x + 1) * w - b + rx, ry - (y + 0) * h + b)
-                draw_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b)
-                draw_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b)
-            elif j == pbreak - 1 or i == total_cards - 1:
-                # Draw lines
-                for cy in range(rows + 1):
-                    for cx in range(cols + 1):
-                        draw_cross(pages, rx + w * cx, ry - h * cy)
+            if stroke:
+                if has_bleed_edge:
+                    draw_cross(pages, (x + 0) * w + b + rx, ry - (y + 0) * h + b)
+                    draw_cross(pages, (x + 1) * w - b + rx, ry - (y + 0) * h + b)
+                    draw_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b)
+                    draw_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b)
+                elif j == pbreak - 1 or i == total_cards - 1:
+                    # Draw lines
+
+                    for cy in range(0,rows + 1):
+                        for cx in range(0,cols + 1):
+                            draw_cross(pages, rx + w * cx, ry - h * cy)
             i += 1
     saving_window = popup("Saving...")
     saving_window.refresh()
@@ -425,6 +428,7 @@ def window_setup(cols):
             sg.Button(button_text=" Run Cropper ", size=(10, 1), key="CROP"),
             sg.Button(button_text=" Save Project ", size=(10, 1), key="SAVE"),
             sg.Button(button_text=" Render PDF ", size=(10, 1), key="RENDER"),
+            sg.Checkbox(" STROKE ",key="STROKE"),
         ],
         [
             sg.Frame(
@@ -551,7 +555,7 @@ for k in window.key_dict.keys():
 loading_window.close()
 while True:
     event, values = window.read()
-
+    stroke = values['STROKE']
     if event == sg.WIN_CLOSED or event == sg.WINDOW_CLOSE_ATTEMPTED_EVENT:
         break
     
