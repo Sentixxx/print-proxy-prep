@@ -222,15 +222,18 @@ def pdf_gen(p_dict, size):
         for i, img in enumerate(page_images):
             x, y = get_ith_image_coords(i)
             draw_image(img, x, y)
-        if stroke: 
-            # Draw lines per image
-            if has_bleed_edge:
-                    draw_cross(pages, (x + 0) * w + b + rx, ry - (y + 0) * h + b)
-                    draw_cross(pages, (x + 1) * w - b + rx, ry - (y + 0) * h + b)
-                    draw_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b)
-                    draw_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b)
+        
+            if stroke: 
+                # Draw lines per image
+                if has_bleed_edge:
+                        draw_cross(pages, (x + 0) * w + b + rx, ry - (y + 0) * h + b)
+                        draw_cross(pages, (x + 1) * w - b + rx, ry - (y + 0) * h + b)
+                        draw_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b)
+                        draw_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b)
 
-            # Draw lines for whole page
+            
+        # Draw lines for whole page
+        if stroke:
             if not has_bleed_edge:
                 for cy in range(rows + 1):
                     for cx in range(cols + 1):
