@@ -34,7 +34,7 @@ def popup(middle_text):
 
 loading_window = popup("Loading...")
 loading_window.refresh()
-
+stroke = True
 cwd = os.path.dirname(__file__)
 image_dir = os.path.join(cwd, "images")
 crop_dir = os.path.join(image_dir, "crop")
@@ -223,16 +223,18 @@ def pdf_gen(p_dict, size):
         for i, img in enumerate(page_images):
             x, y = get_ith_image_coords(i)
             draw_image(img, x, y)
-
-        if stroke:
+        
+            if stroke: 
                 # Draw lines per image
-            if has_bleed_edge:
-                draw_cross(pages, (x + 0) * w + b + rx, ry - (y + 0) * h + b)
-                draw_cross(pages, (x + 1) * w - b + rx, ry - (y + 0) * h + b)
-                draw_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b)
-                draw_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b)
+                if has_bleed_edge:
+                        draw_cross(pages, (x + 0) * w + b + rx, ry - (y + 0) * h + b)
+                        draw_cross(pages, (x + 1) * w - b + rx, ry - (y + 0) * h + b)
+                        draw_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b)
+                        draw_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b)
 
-            # Draw lines for whole page
+            
+        # Draw lines for whole page
+        if stroke:
             if not has_bleed_edge:
                 for cy in range(rows + 1):
                     for cx in range(cols + 1):
