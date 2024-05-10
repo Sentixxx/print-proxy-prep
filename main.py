@@ -35,6 +35,7 @@ def popup(middle_text):
 loading_window = popup("Loading...")
 loading_window.refresh()
 stroke = True
+reverse = False
 cwd = os.path.dirname(__file__)
 image_dir = os.path.join(cwd, "images")
 crop_dir = os.path.join(image_dir, "crop")
@@ -142,18 +143,18 @@ def write_image(path, image):
 
 
 # Draws black-white dashed cross at `x`, `y`
-def draw_cross(can, x, y, c=6, s=1):
+def draw_cross(can, x, y, c=6, s=0.3):
     dash = [s, s]
     can.setLineWidth(s)
 
-    #First layer
+    # First layer
     can.setDash(dash)
     can.setStrokeColorRGB(0, 255, 0)
     can.line(x, y - c, x, y + c)
     can.setStrokeColorRGB(0, 255, 0)
     can.line(x - c, y, x + c, y)
 
-    #Second layer with phase offset
+    # Second layer with phase offset
     can.setDash(dash, s)
     can.setStrokeColorRGB(0, 255, 0)
     can.line(x, y - c, x, y + c)
@@ -242,41 +243,31 @@ def pdf_gen(p_dict, size):
 
         # Next page
         pages.showPage()
+        
 
         # Draw back-sides if requested
         if has_backside:
+            if reverse:
+                pages.translate(size[0]/2, size[1]/2) 
+                pages.rotate(180)
+                pages.translate(-size[0]/2, -size[1]/2) 
             for i, img in enumerate(page_images):
                 backside = (
                     print_dict["backsides"][img]
                     if img in print_dict["backsides"]
                     else print_dict["backside_default"]
                 )
-                x, y = get_ith_image_coords(i)
+                if i % 3 == 0:
+                    t = i + 2
+                elif i % 3 == 1:
+                    t = i
+                else:
+                    t = i - 2
+                x , y = get_ith_image_coords(t)
                 draw_image(backside, x, y, backside_offset, 0)
 
             # Next page
             pages.showPage()
-
-            pages.drawImage(
-                img_path,
-                x * w + rx,
-                ry - y * h,
-                w,
-                h,
-            )
-            if stroke:
-                if has_bleed_edge:
-                    draw_cross(pages, (x + 0) * w + b + rx, ry - (y + 0) * h + b)
-                    draw_cross(pages, (x + 1) * w - b + rx, ry - (y + 0) * h + b)
-                    draw_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b)
-                    draw_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b)
-                elif j == pbreak - 1 or i == total_cards - 1:
-                    # Draw lines
-
-                    for cy in range(0,rows + 1):
-                        for cx in range(0,cols + 1):
-                            draw_cross(pages, rx + w * cx, ry - h * cy)
-            i += 1
     saving_window = popup("Saving...")
     saving_window.refresh()
     pages.save()
@@ -616,6 +607,8 @@ def window_setup(cols):
                 key="DEFAULT_BACKSIDE",
                 disabled=not print_dict["backside_enabled"],
             ),
+            sg.Checkbox("Reverse", key="REVERSE", default=print_dict["Reverse"],
+                        disabled=not print_dict["backside_enabled"]),
             sg.Text("Offset (mm):"),
             sg.Input(
                 print_dict["backside_offset"],
@@ -784,18 +777,20 @@ else:
         "cards": {},
         # program window settings
         "size": (1480, 920),
-        "columns": 5,
+        "columns": 4,
         # backside options
         "backside_enabled": False,
         "backside_default": "__back.png",
         "backside_offset": "0",
         "backsides": {},
+        "Reverse": False,
         # pdf generation options
         "pagesize": "Letter",
         "page_sizes": ["Letter", "A4", "A3", "Legal"],
         "orient": "Portrait",
         "bleed_edge": "0",
         "filename": "_printme",
+        
     }
     for img in list_files(crop_dir):
         print_dict["cards"][img] = 0 if img.startswith("__") else 1
@@ -816,6 +811,8 @@ hover_backside = False
 while True:
     event, values = window.read()
     stroke = values['STROKE']
+    reverse = values['REVERSE']
+    print_dict["Reverse"] = reverse
     if event == sg.WIN_CLOSED or event == sg.WINDOW_CLOSE_ATTEMPTED_EVENT:
         break
 
