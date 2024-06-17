@@ -161,6 +161,8 @@ def draw_cross(can, x, y, c=6, s=1):
 
 
 def pdf_gen(p_dict, size):
+    print(f"Rendering pdf...")
+
     rgx = re.compile(r"\W")
     img_dict = p_dict["cards"]
     has_backside = print_dict["backside_enabled"]
@@ -200,14 +202,16 @@ def pdf_gen(p_dict, size):
         images[i : i + images_per_page] for i in range(0, len(images), images_per_page)
     ]
 
-    for page_images in images:
+    for p, page_images in enumerate(images):
+        print(f"\trendering page {p}")
 
         def get_ith_image_coords(i):
             _, j = divmod(i, images_per_page)
             y, x = divmod(j, cols)
             return x, y
 
-        def draw_image(img, x, y, dx=0.0, dy=0.0):
+        def draw_image(img, i, x, y, dx=0.0, dy=0.0):
+            print(f"\t\trendering image number {i} - {img}")
             img_path = os.path.join(img_dir, img)
             if os.path.exists(img_path):
                 pages.drawImage(
@@ -221,7 +225,7 @@ def pdf_gen(p_dict, size):
         # Draw front-sides
         for i, img in enumerate(page_images):
             x, y = get_ith_image_coords(i)
-            draw_image(img, x, y)
+            draw_image(img, i, x, y)
 
             # Draw lines per image
             if has_bleed_edge:
@@ -241,6 +245,7 @@ def pdf_gen(p_dict, size):
 
         # Draw back-sides if requested
         if has_backside:
+            print(f"\trendering backside for page {p}")
             for i, img in enumerate(page_images):
                 backside = (
                     print_dict["backsides"][img]
@@ -248,7 +253,7 @@ def pdf_gen(p_dict, size):
                     else print_dict["backside_default"]
                 )
                 x, y = get_ith_image_coords(i)
-                draw_image(backside, x, y, backside_offset, 0)
+                draw_image(backside, i, x, y, backside_offset, 0)
 
             # Next page
             pages.showPage()
@@ -383,9 +388,11 @@ def to_bytes(file_or_bytes, resize=None):
 
 
 def cache_previews(file, folder, data={}):
+    print("Caching previews...")
     for f in list_files(folder):
         if f in data.keys():
             continue
+        print(f"\t{f} - generating preview")
 
         fn = os.path.join(folder, f)
         im = read_image(fn)
