@@ -47,6 +47,13 @@ config = configparser.ConfigParser()
 config.read(os.path.join(cwd, "config.ini"))
 cfg = config["DEFAULT"]
 
+page_sizes = {
+    "Letter": letter,
+    "A4": A4,
+    "A3": A3,
+    "Legal": legal
+}
+
 card_size_with_bleed_inch = (2.72, 3.7)
 card_size_without_bleed_inch = (2.48, 3.46)
 
@@ -760,6 +767,7 @@ if os.path.exists(print_json):
         bleed_edge = "0"
     print_dict["bleed_edge"] = bleed_edge
 else:
+    default_page_size = cfg.get("Paper.Size", "Letter")
     # Initialize our values
     print_dict = {
         "cards": {},
@@ -772,8 +780,8 @@ else:
         "backside_offset": "0",
         "backsides": {},
         # pdf generation options
-        "pagesize": "Letter",
-        "page_sizes": ["Letter", "A4", "A3", "Legal"],
+        "pagesize": default_page_size if default_page_size in page_sizes else "Letter",
+        "page_sizes": list(page_sizes.keys()),
         "orient": "Portrait",
         "bleed_edge": "0",
         "filename": "_printme",
@@ -908,8 +916,7 @@ while True:
         grey_window = grey_out(window)
         render_window = popup("Rendering...")
         render_window.refresh()
-        lookup = {"Letter": letter, "A4": A4, "A3": A3, "Legal": legal}
-        pdf_gen(print_dict, lookup[print_dict["pagesize"]])
+        pdf_gen(print_dict, page_sizes[print_dict["pagesize"]])
         render_window.close()
         grey_window.close()
         window.enable()
