@@ -397,7 +397,7 @@ def to_bytes(file_or_bytes, resize=None):
 def cache_previews(file, folder, data={}):
     print("Caching previews...")
     for f in list_files(folder):
-        if f in data.keys():
+        if f in data.keys() and 'size' in data[f]:
             continue
         print(f"\t{f} - generating preview")
 
@@ -743,33 +743,43 @@ def window_setup(cols):
     return window
 
 
-crop_list = list_files(crop_dir)
-img_dict = {}
-if os.path.exists(img_cache):
-    with open(img_cache, "r") as fp:
-        img_dict = json.load(fp)
-if len(img_dict.keys()) < len(crop_list):
-    img_dict = cache_previews(img_cache, crop_dir, img_dict)
-img_dict = cropper(image_dir, img_dict, None)
+def load_img_dict():
+    crop_list = list_files(crop_dir)
+    img_dict = {}
+    if os.path.exists(img_cache):
+        with open(img_cache, "r") as fp:
+            img_dict = json.load(fp)
+    img_cache_needs_refresh = len(img_dict.keys()) < len(crop_list)
+    if not img_cache_needs_refresh:
+        for _, value in img_dict.items():
+            if 'size' not in value:
+                img_cache_needs_refresh = True
+                break
+    if img_cache_needs_refresh:
+        img_dict = cache_previews(img_cache, crop_dir, img_dict)
+    return img_dict
+img_dict = cropper(image_dir, load_img_dict(), None)
 
-if os.path.exists(print_json):
-    with open(print_json, "r") as fp:
-        print_dict = json.load(fp)
-    # Check that we have all our cards accounted for
-    if len(print_dict["cards"].items()) < len(list_files(crop_dir)):
-        for img in list_files(crop_dir):
-            if img not in print_dict["cards"].keys():
-                print_dict["cards"][img] = 0 if img.startswith("__") else 1
-    # Make sure we have a sensible bleed edge
-    bleed_edge = print_dict["bleed_edge"]
-    bleed_edge = cap_bleed_edge_str(bleed_edge)
-    if not is_number_string(bleed_edge):
-        bleed_edge = "0"
-    print_dict["bleed_edge"] = bleed_edge
-else:
+
+def load_print_dict():
+    print_dict = {}
+    if os.path.exists(print_json):
+        with open(print_json, "r") as fp:
+            print_dict = json.load(fp)
+        # Check that we have all our cards accounted for
+        if len(print_dict["cards"].items()) < len(list_files(crop_dir)):
+            for img in list_files(crop_dir):
+                if img not in print_dict["cards"].keys():
+                    print_dict["cards"][img] = 0 if img.startswith("__") else 1
+        # Make sure we have a sensible bleed edge
+        bleed_edge = print_dict["bleed_edge"]
+        bleed_edge = cap_bleed_edge_str(bleed_edge)
+        if not is_number_string(bleed_edge):
+            bleed_edge = "0"
+        print_dict["bleed_edge"] = bleed_edge
+
     default_page_size = cfg.get("Paper.Size", "Letter")
-    # Initialize our values
-    print_dict = {
+    default_print_dict = {
         "cards": {},
         # program window settings
         "size": (1480, 920),
@@ -786,8 +796,17 @@ else:
         "bleed_edge": "0",
         "filename": "_printme",
     }
+    # Initialize our values
+    for key, value in default_print_dict.items():
+        if key not in print_dict:
+            print_dict[key] = value
+
+    # deselect images starting with __
     for img in list_files(crop_dir):
         print_dict["cards"][img] = 0 if img.startswith("__") else 1
+    
+    return print_dict
+print_dict = load_print_dict()
 
 bleed_edge = float(print_dict["bleed_edge"])
 if need_run_cropper(image_dir, bleed_edge):
