@@ -18,16 +18,27 @@ sg.theme("DarkTeal2")
 
 
 def popup(middle_text):
-    return sg.Window(
+    wnd = sg.Window(
         middle_text,
         [
             [sg.Sizer(v_pixels=20)],
-            [sg.Sizer(h_pixels=20), sg.Text(middle_text), sg.Sizer(h_pixels=20)],
+            [sg.Sizer(h_pixels=20), sg.Text(middle_text, key="TEXT", justification="center"), sg.Sizer(h_pixels=20)],
             [sg.Sizer(v_pixels=20)],
         ],
         no_titlebar=True,
         finalize=True,
     )
+    wnd.move_to_center()
+    return wnd
+
+def make_popup_print_fn(wnd):
+    def popup_print_fn(text):
+        print(text)
+        wnd["TEXT"].update(text)
+        wnd.refresh()
+        wnd.move_to_center()
+        wnd.refresh()
+    return popup_print_fn
 
 
 loading_window = popup("Loading...")
@@ -176,9 +187,7 @@ def draw_cross(can, x, y, c=6, s=1):
     can.line(x - c, y, x + c, y)
 
 
-def pdf_gen(p_dict, size, pdf_path):
-    print(f"Rendering pdf...")
-
+def pdf_gen(p_dict, size, pdf_path, print_fn):
     img_dict = p_dict["cards"]
     has_backside = print_dict["backside_enabled"]
     backside_offset = mm_to_point(float(p_dict["backside_offset"]))
@@ -210,7 +219,7 @@ def pdf_gen(p_dict, size, pdf_path):
     ]
 
     for p, page_images in enumerate(images):
-        print(f"\trendering page {p}")
+        render_fmt = "Rendering page {page}...\nImage number {img_idx} - {img_name}"
 
         def get_ith_image_coords(i):
             _, j = divmod(i, images_per_page)
@@ -218,7 +227,7 @@ def pdf_gen(p_dict, size, pdf_path):
             return x, y
 
         def draw_image(img, i, x, y, dx=0.0, dy=0.0):
-            print(f"\t\trendering image number {i} - {img}")
+            print_fn(render_fmt.format(page=p+1, img_idx=i+1, img_name=img))
             img_path = os.path.join(img_dir, img)
             if os.path.exists(img_path):
                 pages.drawImage(
@@ -252,8 +261,9 @@ def pdf_gen(p_dict, size, pdf_path):
 
         # Draw back-sides if requested
         if has_backside:
-            print(f"\trendering backside for page {p}")
+            render_fmt = "Rendering backside for page {page}...\nImage number {img_idx} - {img_name}"
             for i, img in enumerate(page_images):
+                print_fn(render_fmt.format(page=p+1, img_idx=i+1, img_name=img))
                 backside = (
                     print_dict["backsides"][img]
                     if img in print_dict["backsides"]
@@ -290,10 +300,10 @@ def need_run_cropper(folder, bleed_edge):
     return False
 
 
-def cropper(folder, img_dict, bleed_edge):
+def cropper(folder, img_dict, bleed_edge, print_fn):
     has_bleed_edge = bleed_edge is not None and bleed_edge > 0
     if has_bleed_edge:
-        img_dict = cropper(folder, img_dict, None)
+        img_dict = cropper(folder, img_dict, None, print_fn)
 
     i = 0
     output_dir = crop_dir
@@ -319,12 +329,12 @@ def cropper(folder, img_dict, bleed_edge):
             bleed_edge_inch = mm_to_inch(bleed_edge)
             bleed_edge_pixel = dpi * bleed_edge_inch
             c = round(0.12 * min(w / bw, h / bh) - bleed_edge_pixel)
-            print(
-                f"{img_file} - DPI calculated: {dpi}, cropping {c} pixels around frame (adjusted for bleed edge)"
+            print_fn(
+                f"Cropping images...\n{img_file} - DPI calculated: {dpi}, cropping {c} pixels around frame (adjusted for bleed edge)"
             )
         else:
-            print(
-                f"{img_file} - DPI calculated: {dpi}, cropping {c} pixels around frame"
+            print_fn(
+                f"Cropping images...\n{img_file} - DPI calculated: {dpi}, cropping {c} pixels around frame"
             )
         crop_im = im[c : h - c, c : w - c]
         (h, w, _) = crop_im.shape
@@ -334,8 +344,8 @@ def cropper(folder, img_dict, bleed_edge):
                 int(round(w * cfg.getint("Max.DPI") / dpi)),
                 int(round(h * cfg.getint("Max.DPI") / dpi)),
             )
-            print(
-                f"{img_file} - Exceeds maximum DPI {max_dpi}, resizing to {new_size[0]}x{new_size[1]}"
+            print_fn(
+                f"Cropping images...\n{img_file} - Exceeds maximum DPI {max_dpi}, resizing to {new_size[0]}x{new_size[1]}"
             )
             crop_im = cv2.resize(crop_im, new_size, interpolation=cv2.INTER_CUBIC)
             crop_im = numpy.array(
@@ -346,7 +356,7 @@ def cropper(folder, img_dict, bleed_edge):
         write_image(os.path.join(output_dir, img_file), crop_im)
 
     if i > 0 and not has_bleed_edge:
-        return cache_previews(img_cache, output_dir)
+        return cache_previews(img_cache, output_dir, print_fn)
     else:
         return img_dict
 
@@ -387,12 +397,11 @@ def to_bytes(file_or_bytes, resize=None):
     return bio.getvalue(), (cur_width, cur_height)
 
 
-def cache_previews(file, folder, data={}):
-    print("Caching previews...")
+def cache_previews(file, folder, print_fn, data={}):
     for f in list_files(folder):
         if f in data.keys() and 'size' in data[f]:
             continue
-        print(f"\t{f} - generating preview")
+        print_fn(f"Caching previews...\n{f}")
 
         fn = os.path.join(folder, f)
         im = read_image(fn)
@@ -754,9 +763,10 @@ def load_img_dict():
                 img_cache_needs_refresh = True
                 break
     if img_cache_needs_refresh:
-        img_dict = cache_previews(img_cache, crop_dir, img_dict)
+        print_fn = make_popup_print_fn(loading_window) if loading_window is not None else print
+        img_dict = cache_previews(img_cache, crop_dir, print_fn, img_dict)
     return img_dict
-img_dict = cropper(image_dir, load_img_dict(), None)
+img_dict = cropper(image_dir, load_img_dict(), None, make_popup_print_fn(loading_window))
 
 
 def load_print_dict():
@@ -811,7 +821,7 @@ print_dict = load_print_dict()
 
 bleed_edge = float(print_dict["bleed_edge"])
 if need_run_cropper(image_dir, bleed_edge):
-    cropper(image_dir, img_dict, bleed_edge)
+    cropper(image_dir, img_dict, bleed_edge, make_popup_print_fn(loading_window))
 
 window = window_setup(print_dict["columns"])
 for k in window.key_dict.keys():
@@ -819,6 +829,7 @@ for k in window.key_dict.keys():
         window[k].bind("<Button-1>", "-LEFT")
         window[k].bind("<Button-3>", "-RIGHT")
 loading_window.close()
+loading_window = None
 hover_backside = False
 
 while True:
@@ -908,27 +919,42 @@ while True:
         cfg = config["DEFAULT"]
 
     if "CROP" in event:
-        oldwindow = window
-        oldwindow.disable()
-        grey_window = grey_out(window)
-
         bleed_edge = float(print_dict["bleed_edge"])
-        img_dict = cropper(image_dir, img_dict, bleed_edge)
-        for img in list_files(crop_dir):
-            if img not in print_dict["cards"].keys():
-                print(f"{img} found and added to list.")
-                print_dict["cards"][img] = 1
+        if need_run_cropper(image_dir, bleed_edge):
+            window.disable()
+            grey_window = grey_out(window)
 
-        window = window_setup(print_dict["columns"])
-        window.enable()
-        window.bring_to_front()
-        oldwindow.close()
-        grey_window.close()
-        window.refresh()
-        for k in window.key_dict.keys():
-            if "CRD:" in str(k):
-                window[k].bind("<Button-1>", "-LEFT")
-                window[k].bind("<Button-3>", "-RIGHT")
+            crop_window = popup("Rendering...")
+            crop_window.refresh()
+            img_dict = cropper(image_dir, img_dict, bleed_edge, make_popup_print_fn(crop_window))
+            crop_window.close()
+
+            needs_rebuild = False
+            for img in list_files(crop_dir):
+                if img not in print_dict["cards"].keys():
+                    print(f"{img} found and added to list.")
+                    print_dict["cards"][img] = 1
+                    needs_rebuild = True
+
+            grey_window.close()
+
+            if needs_rebuild:
+                old_window = window
+                window = window_setup(print_dict["columns"])
+                window.enable()
+                window.bring_to_front()
+                old_window.close()
+
+                for k in window.key_dict.keys():
+                    if "CRD:" in str(k):
+                        window[k].bind("<Button-1>", "-LEFT")
+                        window[k].bind("<Button-3>", "-RIGHT")
+            else:
+                window.enable()
+                window.bring_to_front()
+            window.refresh()
+        else:
+            print("Not running cropper, no need...")
 
     if "RENDER" in event:
         rgx = re.compile(r"\W")
@@ -946,7 +972,7 @@ while True:
 
         render_window = popup("Rendering...")
         render_window.refresh()
-        pages = pdf_gen(print_dict, page_sizes[print_dict["pagesize"]], pdf_path)
+        pages = pdf_gen(print_dict, page_sizes[print_dict["pagesize"]], pdf_path, make_popup_print_fn(render_window))
         render_window.close()
 
         saving_window = popup("Saving...")
