@@ -17,6 +17,14 @@ from reportlab.lib.pagesizes import letter, A4, A3, legal
 sw, sh = sg.Window.get_screen_size()
 sg.theme("DarkTeal2")
 
+#monkey-patching here for better initial maximized
+_old_create_thread_queue = sg.Window._create_thread_queue
+def _new_create_thread_queue(wnd):
+    _old_create_thread_queue(wnd)
+    if wnd._Size == (sw, sh):
+        wnd.maximize()
+sg.Window._create_thread_queue = _new_create_thread_queue
+
 
 def popup(middle_text):
     return sg.Window(
@@ -115,15 +123,23 @@ def cap_offset_str(offset):
             offset = "{:.2f}".format(offset_num)
     return offset
 
+    
+def is_window_maximized(window):
+    if not sg.running_linux():
+        return window.TKroot.state() == 'zoomed'
+    else:
+        return '-fullscreen' in window.TKroot.attributes()
+
 
 def grey_out(main_window):
+    size = (sw, sh) if is_window_maximized(window) else main_window.size
     the_grey = sg.Window(
         title="",
         layout=[[]],
         alpha_channel=0.6,
         titlebar_background_color="#888888",
         background_color="#888888",
-        size=main_window.size,
+        size=size,
         disable_close=True,
         location=main_window.current_location(more_accurate=True),
         finalize=True,
@@ -167,10 +183,9 @@ def draw_cross(can, x, y, c=6, s=1):
     can.line(x - c, y, x + c, y)
 
 
-def pdf_gen(p_dict, size):
+def pdf_gen(p_dict, size, pdf_path):
     print(f"Rendering pdf...")
 
-    rgx = re.compile(r"\W")
     img_dict = p_dict["cards"]
     has_backside = print_dict["backside_enabled"]
     backside_offset = mm_to_point(float(p_dict["backside_offset"]))
@@ -188,15 +203,7 @@ def pdf_gen(p_dict, size):
     rotate = bool(p_dict["orient"] == "Landscape")
     size = tuple(size[::-1]) if rotate else size
     pw, ph = size
-    pdf_fp = os.path.join(
-        cwd,
-        (
-            f"{re.sub(rgx, '', p_dict['filename'])}.pdf"
-            if len(p_dict["filename"]) > 0
-            else "_printme.pdf"
-        ),
-    )
-    pages = canvas.Canvas(pdf_fp, pagesize=size)
+    pages = canvas.Canvas(pdf_path, pagesize=size)
     cols, rows = int(pw // w), int(ph // h)
     rx, ry = round((pw - (w * cols)) / 2), round((ph - (h * rows)) / 2)
     ry = ph - ry - h
@@ -265,14 +272,7 @@ def pdf_gen(p_dict, size):
             # Next page
             pages.showPage()
 
-    saving_window = popup("Saving...")
-    saving_window.refresh()
-    pages.save()
-    saving_window.close()
-    try:
-        subprocess.Popen([pdf_fp], shell=True)
-    except Exception as e:
-        print(e)
+    return pages
 
 
 def need_run_cropper(folder, bleed_edge):
@@ -636,8 +636,6 @@ def window_setup(cols):
         enable_close_attempted_event=True,
         size=print_dict["size"],
     )
-    if print_dict["size"] == (None, None):
-        window.maximize()
 
     img_draw_graphs(window)
 
@@ -785,7 +783,7 @@ def load_print_dict():
     default_print_dict = {
         "cards": {},
         # program window settings
-        "size": (None, None),
+        "size": (sw, sh),
         "columns": 5,
         # backside options
         "backside_enabled": False,
@@ -936,16 +934,38 @@ while True:
                 window[k].bind("<Button-3>", "-RIGHT")
 
     if "RENDER" in event:
+        rgx = re.compile(r"\W")
+        pdf_path = os.path.join(
+            cwd,
+            (
+                f"{re.sub(rgx, '', print_dict['filename'])}.pdf"
+                if len(print_dict["filename"]) > 0
+                else "_printme.pdf"
+            ),
+        )
+        
         window.disable()
         grey_window = grey_out(window)
+
         render_window = popup("Rendering...")
         render_window.refresh()
-        pdf_gen(print_dict, page_sizes[print_dict["pagesize"]])
+        pages = pdf_gen(print_dict, page_sizes[print_dict["pagesize"]], pdf_path)
         render_window.close()
+
+        saving_window = popup("Saving...")
+        saving_window.refresh()
+        pages.save()
+        saving_window.close()
+
         grey_window.close()
         window.enable()
         window.bring_to_front()
         window.refresh()
+        
+        try:
+            subprocess.Popen([pdf_path], shell=True)
+        except Exception as e:
+            print(e)
 
     if "SELECT" in event:
         for card_name in print_dict["cards"].keys():
@@ -963,15 +983,9 @@ while True:
                 path, os.path.abspath("images")
             )
             img_draw_graphs(window)
-    
-    def is_window_maximized(window):
-        if not sg.running_linux():
-            return window.TKroot.state() == 'zoomed'
-        else:
-            return '-fullscreen' in window.TKroot.attributes()
 
     if is_window_maximized(window):
-        print_dict["size"] = (None, None)
+        print_dict["size"] = (sw, sh)
     else:
         print_dict["size"] = window.size
 
