@@ -636,6 +636,9 @@ def window_setup(cols):
         enable_close_attempted_event=True,
         size=print_dict["size"],
     )
+    if print_dict["size"] == (None, None):
+        window.maximize()
+
     img_draw_graphs(window)
 
     for card_name in print_dict["cards"].keys():
@@ -782,7 +785,7 @@ def load_print_dict():
     default_print_dict = {
         "cards": {},
         # program window settings
-        "size": (1480, 920),
+        "size": (None, None),
         "columns": 5,
         # backside options
         "backside_enabled": False,
@@ -801,6 +804,9 @@ def load_print_dict():
         if key not in print_dict:
             print_dict[key] = value
 
+    # Make sure the size is a tuple, not a list
+    print_dict['size'] = tuple(print_dict['size'])
+
     # deselect images starting with __
     for img in list_files(crop_dir):
         print_dict["cards"][img] = 0 if img.startswith("__") else 1
@@ -813,7 +819,6 @@ if need_run_cropper(image_dir, bleed_edge):
     cropper(image_dir, img_dict, bleed_edge)
 
 window = window_setup(print_dict["columns"])
-old_size = window.size
 for k in window.key_dict.keys():
     if "CRD:" in str(k):
         window[k].bind("<Button-1>", "-LEFT")
@@ -958,8 +963,16 @@ while True:
                 path, os.path.abspath("images")
             )
             img_draw_graphs(window)
+    
+    def is_window_maximized(window):
+        if not sg.running_linux():
+            return window.TKroot.state() == 'zoomed'
+        else:
+            return '-fullscreen' in window.TKroot.attributes()
 
-    if event and print_dict["size"] != window.size:
+    if is_window_maximized(window):
+        print_dict["size"] = (None, None)
+    else:
         print_dict["size"] = window.size
 
 with open(print_json, "w") as fp:
