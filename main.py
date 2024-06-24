@@ -14,16 +14,7 @@ import fallback_image as fallback
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, A4, A3, legal
 
-sw, sh = sg.Window.get_screen_size()
 sg.theme("DarkTeal2")
-
-#monkey-patching here for better initial maximized
-_old_create_thread_queue = sg.Window._create_thread_queue
-def _new_create_thread_queue(wnd):
-    _old_create_thread_queue(wnd)
-    if wnd._Size == (sw, sh):
-        wnd.maximize()
-sg.Window._create_thread_queue = _new_create_thread_queue
 
 
 def popup(middle_text):
@@ -132,19 +123,21 @@ def is_window_maximized(window):
 
 
 def grey_out(main_window):
-    size = (sw, sh) if is_window_maximized(window) else main_window.size
     the_grey = sg.Window(
         title="",
         layout=[[]],
-        alpha_channel=0.6,
+        alpha_channel=0.0,
         titlebar_background_color="#888888",
         background_color="#888888",
-        size=size,
+        size=main_window.size,
         disable_close=True,
         location=main_window.current_location(more_accurate=True),
         finalize=True,
     )
+    if is_window_maximized(main_window):
+        the_grey.maximize()
     the_grey.disable()
+    the_grey.set_alpha(0.6)
     the_grey.refresh()
     return the_grey
 
@@ -630,12 +623,16 @@ def window_setup(cols):
     window = sg.Window(
         "PDF Proxy Printer",
         layout,
+        alpha_channel=0.0,
         resizable=True,
         finalize=True,
         element_justification="center",
         enable_close_attempted_event=True,
         size=print_dict["size"],
     )
+
+    window.maximize()
+    window.timer_start(100, repeating=False)
 
     img_draw_graphs(window)
 
@@ -783,7 +780,7 @@ def load_print_dict():
     default_print_dict = {
         "cards": {},
         # program window settings
-        "size": (sw, sh),
+        "size": (None, None),
         "columns": 5,
         # backside options
         "backside_enabled": False,
@@ -985,9 +982,12 @@ while True:
             img_draw_graphs(window)
 
     if is_window_maximized(window):
-        print_dict["size"] = (sw, sh)
+        print_dict["size"] = (None, None)
     else:
         print_dict["size"] = window.size
+    
+    if event == sg.EVENT_TIMER:
+        window.set_alpha(1)
 
 with open(print_json, "w") as fp:
     json.dump(print_dict, fp)
