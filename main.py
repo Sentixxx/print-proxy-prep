@@ -221,9 +221,11 @@ def pdf_gen(p_dict, size, pdf_path, print_fn):
     for p, page_images in enumerate(images):
         render_fmt = "Rendering page {page}...\nImage number {img_idx} - {img_name}"
 
-        def get_ith_image_coords(i):
+        def get_ith_image_coords(i, left_to_right):
             _, j = divmod(i, images_per_page)
             y, x = divmod(j, cols)
+            if not left_to_right:
+                x = cols - (x + 1)
             return x, y
 
         def draw_image(img, i, x, y, dx=0.0, dy=0.0):
@@ -240,7 +242,7 @@ def pdf_gen(p_dict, size, pdf_path, print_fn):
 
         # Draw front-sides
         for i, img in enumerate(page_images):
-            x, y = get_ith_image_coords(i)
+            x, y = get_ith_image_coords(i, True)
             draw_image(img, i, x, y)
 
             # Draw lines per image
@@ -269,7 +271,7 @@ def pdf_gen(p_dict, size, pdf_path, print_fn):
                     if img in print_dict["backsides"]
                     else print_dict["backside_default"]
                 )
-                x, y = get_ith_image_coords(i)
+                x, y = get_ith_image_coords(i, False)
                 draw_image(backside, i, x, y, backside_offset, 0)
 
             # Next page
@@ -992,11 +994,17 @@ while True:
 
     if "SELECT" in event:
         for card_name in print_dict["cards"].keys():
+            if card_name.startswith("__"):
+                continue
+
             print_dict["cards"][card_name] = 1
             window[f"NUM:{card_name}"].update("1")
 
     if "UNSELECT" in event:
         for card_name in print_dict["cards"].keys():
+            if card_name.startswith("__"):
+                continue
+
             print_dict["cards"][card_name] = 0
             window[f"NUM:{card_name}"].update("0")
 
