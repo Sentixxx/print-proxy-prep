@@ -51,6 +51,8 @@ cfg = config["DEFAULT"]
 
 card_size_with_bleed_inch = (2.72, 3.7)
 card_size_without_bleed_inch = (2.48, 3.46)
+vertical_margin = cfg.getfloat("Vertical.Margin")
+orient_margin = cfg.getfloat("Orient.Margin")
 
 
 def load_vibrance_cube():
@@ -165,6 +167,8 @@ def draw_cross(can, x, y, c=6, s=0.5):
 def pdf_gen(p_dict, size):
     rgx = re.compile(r"\W")
     img_dict = p_dict["cards"]
+    orient_margin = cfg.getfloat("Orient.Margin")
+    vertical_margin = cfg.getfloat("Vertical.Margin")
     has_backside = print_dict["backside_enabled"]
     backside_offset = mm_to_point(float(p_dict["backside_offset"]))
     bleed_edge = float(p_dict["bleed_edge"])
@@ -214,11 +218,12 @@ def pdf_gen(p_dict, size):
             if os.path.exists(img_path):
                 pages.drawImage(
                     img_path,
-                    x * w + rx + dx,
-                    ry - y * h + dy,
+                    x * w + rx + dx + x * mm_to_point(orient_margin),
+                    ry - y * h + dy - y * mm_to_point(vertical_margin),
                     w,
                     h,
                 )
+                print(f"Drawing {img} at {x * w + rx + dx}, {ry - y * h + dy} for {x} {y}")
 
         # Draw front-sides
         for i, img in enumerate(page_images):
@@ -228,10 +233,10 @@ def pdf_gen(p_dict, size):
             if stroke: 
                 # Draw lines per image
                 if has_bleed_edge:
-                        draw_cross(pages, (x + 0) * w + b + rx, ry - (y + 0) * h + b)
-                        draw_cross(pages, (x + 1) * w - b + rx, ry - (y + 0) * h + b)
-                        draw_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b)
-                        draw_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b)
+                        draw_cross(pages, (x + 0) * w + b + rx + x * mm_to_point(orient_margin), ry - (y + 0) * h + b - y * mm_to_point(vertical_margin))
+                        draw_cross(pages, (x + 1) * w - b + rx + x * mm_to_point(orient_margin), ry - (y + 0) * h + b - y * mm_to_point(vertical_margin))
+                        draw_cross(pages, (x + 1) * w - b + rx + x * mm_to_point(orient_margin), ry - (y - 1) * h - b - y * mm_to_point(vertical_margin))
+                        draw_cross(pages, (x + 0) * w + b + rx + x * mm_to_point(orient_margin), ry - (y - 1) * h - b - y * mm_to_point(vertical_margin))
 
             
         # Draw lines for whole page
@@ -239,7 +244,7 @@ def pdf_gen(p_dict, size):
             if not has_bleed_edge:
                 for cy in range(rows + 1):
                     for cx in range(cols + 1):
-                        draw_cross(pages, rx + w * cx, ry - h * (cy - 1))
+                        draw_cross(pages, rx + w * cx + x * mm_to_point(orient_margin), ry - h * (cy - 1) - y * mm_to_point(vertical_margin))
 
         # Next page
         pages.showPage()
