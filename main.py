@@ -143,7 +143,7 @@ def write_image(path, image):
 
 
 # Draws black-white dashed cross at `x`, `y`
-def draw_cross(can, x, y, c=6, s=0.3):
+def draw_cross(can, x, y, c=6, s=0.5):
     dash = [s, s]
     can.setLineWidth(s)
 
@@ -607,8 +607,7 @@ def window_setup(cols):
                 key="DEFAULT_BACKSIDE",
                 disabled=not print_dict["backside_enabled"],
             ),
-            sg.Checkbox("Reverse", key="REVERSE", default=print_dict["Reverse"],
-                        disabled=not print_dict["backside_enabled"]),
+            sg.Checkbox("Reverse", key="REVERSE", default=print_dict["Reverse"]),
             sg.Text("Offset (mm):"),
             sg.Input(
                 print_dict["backside_offset"],
@@ -785,7 +784,7 @@ else:
         "backsides": {},
         "Reverse": False,
         # pdf generation options
-        "pagesize": "Letter",
+        "pagesize": "A4",
         "page_sizes": ["Letter", "A4", "A3", "Legal"],
         "orient": "Portrait",
         "bleed_edge": "0",
